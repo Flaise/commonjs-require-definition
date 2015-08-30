@@ -10,14 +10,10 @@
 
   var aliases = {};
 
-  var endsWith = function(str, suffix) {
-    return str.indexOf(suffix, str.length - suffix.length) !== -1;
-  };
-
   var unalias = function(alias, loaderPath) {
     var start = 0;
     if (loaderPath) {
-      if (loaderPath.indexOf('components/' === 0)) {
+      if (loaderPath.indexOf('components/') === 0) {
         start = 'components/'.length;
       }
       if (loaderPath.indexOf('/', start) > 0) {
@@ -30,31 +26,24 @@
     }
     return alias;
   };
-
-  var expand = (function() {
-    var reg = /^\.\.?(\/|$)/;
-    return function(root, name) {
-      var results = [], parts, part;
-      parts = (reg.test(name) ? root + '/' + name : name).split('/');
-      for (var i = 0, length = parts.length; i < length; i++) {
-        part = parts[i];
-        if (part === '..') {
-          results.pop();
-        } else if (part !== '.' && part !== '') {
-          results.push(part);
-        }
+  
+  var expand = function(name) {
+    var results = [];
+    var parts = name.split('/');
+    for (var i = 0, length = parts.length; i < length; i++) {
+      var part = parts[i];
+      if (part === '..') {
+        results.pop();
+      } else if (part !== '.' && part !== '') {
+        results.push(part);
       }
-      return results.join('/');
-    };
-  })();
-  var dirname = function(path) {
-    return path.split('/').slice(0, -1).join('/');
+    }
+    return results.join('/');
   };
 
   var localRequire = function(path) {
     return function(name) {
-      var absolute = expand(dirname(path), name);
-      return globals.require(absolute, path);
+      return globals.require(name, path);
     };
   };
 
@@ -64,21 +53,46 @@
     definition(module.exports, localRequire(name), module);
     return module.exports;
   };
+  
+  var isRelative = /^\.\.?(\/|$)/;
 
   var require = function(name, loaderPath) {
-    var path = expand(name, '.');
-    if (loaderPath == null) loaderPath = '/';
-    path = unalias(name, loaderPath);
+    if (loaderPath)
+      loaderPath = expand(loaderPath);
+    else
+      loaderPath = '.';
+    
+    if (isRelative.test(name)) {
+      var result = requirePath(loaderPath + '/' + name, loaderPath);
+      if(result)
+        return result;
+    }
+    else {
+      var loaderPathSegments = loaderPath.split('/');
+      while (loaderPathSegments.length) {
+        loaderPathSegments.pop();
+        var result = requirePath(loaderPathSegments.join('/') + '/node_modules/' + name);
+        if(result)
+          return result;
+      }
+    }
 
+    throw new Error('Cannot find module "' + name + '" from "' + loaderPath + '"');
+  };
+  
+  var requirePath = function(path, loaderPath) {
+    path = expand(path);
+    path = unalias(path, loaderPath);
+    
     if (has.call(cache, path)) return cache[path].exports;
     if (has.call(modules, path)) return initModule(path, modules[path]);
-
-    var dirIndex = expand(path, './index');
+    
+    var dirIndex = path + '/index';
     if (has.call(cache, dirIndex)) return cache[dirIndex].exports;
     if (has.call(modules, dirIndex)) return initModule(dirIndex, modules[dirIndex]);
-
-    throw new Error('Cannot find module "' + name + '" from '+ '"' + loaderPath + '"');
-  };
+    
+    return undefined;
+  }
 
   require.alias = function(from, to) {
     aliases[to] = from;
